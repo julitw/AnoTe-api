@@ -38,6 +38,24 @@ async def add_project(
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    try:
+        dataset_df = pd.read_csv(file_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Nie udało się wczytać pliku CSV.")
+
+    # Sprawdzenie, czy kolumna istnieje w DataFrame
+    if column_text_name not in dataset_df.columns:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Kolumna '{column_text_name}' nie istnieje w przesłanym pliku."
+        )
+    
+    if column_label_name not in dataset_df.columns:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Kolumna '{column_label_name}' nie istnieje w przesłanym pliku."
+        )
+
     # Zapis do bazy danych
     new_project = Project(
         name=name,
