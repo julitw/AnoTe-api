@@ -33,6 +33,16 @@ async def add_project(
     available_labels: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    # Sprawdzenie, czy wartości nie są puste
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="Pole 'name' nie może być puste.")
+    if not column_text_name.strip():
+        raise HTTPException(status_code=400, detail="Pole 'column_text_name' nie może być puste.")
+    if not column_label_name.strip():
+        raise HTTPException(status_code=400, detail="Pole 'column_label_name' nie może być puste.")
+    if not available_labels.strip():
+        raise HTTPException(status_code=400, detail="Pole 'available_labels' nie może być puste.")
+
     # Zapis pliku na serwerze
     file_path = f"{UPLOAD_DIR}/{file.filename}"
     with open(file_path, "wb") as buffer:
@@ -122,7 +132,7 @@ def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db))
         model=GPT4oMiniLLM(token='IsrNlWB2APIENYsSA-tUW2WMlcM5WxSzstu_QQvYFzmWH0Q2', temperature=0),
         dataset=data_subset,
         examples_for_prompt=examples_df,
-        prompt_template="Classify the text based on: {labels}. \n\n{examples}\n\nText: {text}",
+        prompt_template="Classify the text based on: {labels}. Return only label. Avoid explanations. \n\n{examples}\n\nText: {text}. ",
         text_column_name=project.column_text_name,
         labels=project.available_labels.split(',')
     )
@@ -150,7 +160,7 @@ def download_annotated_file(project_id: int, db: Session = Depends(get_db)):
     if project is None:
         raise HTTPException(status_code=404, detail="Projekt nie znaleziony")
 
-    # Sprawdzenie czy plik istnieje
+
     if not os.path.exists(project.file_path):
         raise HTTPException(status_code=404, detail="Plik z danymi nie znaleziony")
 
@@ -173,10 +183,9 @@ def get_annotated_data(project_id: int, db: Session = Depends(get_db)):
         if 'predicted_label' not in dataset_df.columns:
             raise HTTPException(status_code=400, detail="Brak anotacji w pliku")
 
-        # Pobranie danych do zaanotowanego indeksu
+
         annotated_data = dataset_df.iloc[:project.last_annotated_index]
 
-        # Konwersja danych do formatów serializowalnych JSON
         annotated_data = annotated_data.astype(str).to_dict(orient='records')
 
         return annotated_data
@@ -203,3 +212,32 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Projekt został pomyślnie usunięty"}
+
+@router.post("/get_columns")
+async def get_columns(file: UploadFile = File(...)):
+    try:
+        df = pd.read_csv(file.file, nrows=1)
+        columns = list(df.columns)
+        print('column', columns)
+        if not columns:
+            return {"message": "Plik nie zawiera  nagłówków"}
+        return {"columns": columns}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd podczas odczytu pliku: {str(e)}")
+
+
+@router.post("/get_unique_values")
+async def get_unique_values(file: UploadFile = File(...), column_name: str = Form(...)):
+    try:
+
+        df = pd.read_csv(file.file)
+
+        if column_name not in df.columns:
+            raise HTTPException(status_code=400, detail=f"Kolumna '{column_name}' nie istnieje w pliku.")
+
+        unique_values = df[column_name].dropna().unique().tolist()
+
+        return {"unique_values": unique_values}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd podczas przetwarzania pliku: {str(e)}")
