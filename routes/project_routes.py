@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, File, UploadFile, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from models.database import SessionLocal, engine
@@ -8,6 +9,8 @@ from llm.LLMAnnotator import LLMAnnotator
 from llm.models.GPT4omini import GPT4oMiniLLM
 import pandas as pd
 from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 
 router = APIRouter()
 
@@ -21,8 +24,7 @@ def get_db():
     finally:
         db.close()
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 @router.post("/add")
 async def add_project(
@@ -31,54 +33,64 @@ async def add_project(
     column_text_name: str = Form(...),
     column_label_name: str = Form(...),
     available_labels: str = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db)  # 🔹 Pobranie sesji bazy danych
 ):
-    # Sprawdzenie, czy wartości nie są puste
-    if not name.strip():
-        raise HTTPException(status_code=400, detail="Pole 'name' nie może być puste.")
-    if not column_text_name.strip():
-        raise HTTPException(status_code=400, detail="Pole 'column_text_name' nie może być puste.")
-    if not column_label_name.strip():
-        raise HTTPException(status_code=400, detail="Pole 'column_label_name' nie może być puste.")
-    if not available_labels.strip():
-        raise HTTPException(status_code=400, detail="Pole 'available_labels' nie może być puste.")
+    print(f"DEBUG: name={name}, file={file.filename}, column_text_name={column_text_name}, column_label_name={column_label_name}, available_labels={available_labels}")
 
-    # Zapis pliku na serwerze
-    file_path = f"{UPLOAD_DIR}/{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # 🔹 Sprawdzenie, czy plik nie jest pusty
+    file_content = await file.read()
+    if not file_content.strip():
+        raise HTTPException(status_code=400, detail="Przesłany plik jest pusty.")
+
+    print("DEBUG: Otrzymano plik, pierwsze 500 bajtów:")
+    print(file_content[:500].decode("utf-8", errors="replace"))  # Debugowanie zawartości pliku
+
 
     try:
-        dataset_df = pd.read_csv(file_path)
+        labels_list = json.loads(available_labels)
+        if not isinstance(labels_list, list) or not all(isinstance(label, str) for label in labels_list):
+            raise ValueError("Lista etykiet musi zawierać tylko stringi!")
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="Niepoprawny format 'available_labels'.")
+
+    # 🔹 Wczytanie CSV
+    file_stream = BytesIO(file_content)
+
+    try:
+        dataset_df = pd.read_csv(file_stream, encoding="utf-8")
+        if dataset_df.empty:
+            raise HTTPException(status_code=400, detail="Plik CSV jest pusty.")
+
+        print("DEBUG: Załadowano DataFrame:\n", dataset_df.head())
+
+        # 🔹 Sprawdzenie, czy kolumny istnieją
+        if column_text_name not in dataset_df.columns:
+            raise HTTPException(status_code=400, detail=f"Kolumna '{column_text_name}' nie istnieje w pliku.")
+        
+        if column_label_name not in dataset_df.columns:
+            raise HTTPException(status_code=400, detail=f"Kolumna '{column_label_name}' nie istnieje w pliku.")
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail="Nie udało się wczytać pliku CSV.")
+        raise HTTPException(status_code=400, detail=f"Nie udało się wczytać pliku CSV: {str(e)}")
 
-    # Sprawdzenie, czy kolumna istnieje w DataFrame
-    if column_text_name not in dataset_df.columns:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Kolumna '{column_text_name}' nie istnieje w przesłanym pliku."
-        )
-    
-    if column_label_name not in dataset_df.columns:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Kolumna '{column_label_name}' nie istnieje w przesłanym pliku."
-        )
-
-    # Zapis do bazy danych
+    # 🔹 Dodanie projektu do bazy danych
     new_project = Project(
         name=name,
-        file_path=file_path,
+        file_data=file_content,  # Zapis pliku jako `LargeBinary`
+        file_name=file.filename,  # Zapisujemy nazwę pliku
         column_text_name=column_text_name,
         column_label_name=column_label_name,
-        available_labels=available_labels
+        available_labels=json.dumps(labels_list),  # Konwersja listy do stringa JSON
+        last_annotated_index=0,  # Początkowy indeks anotacji
+        row_count = len(dataset_df)
     )
+
     db.add(new_project)
     db.commit()
     db.refresh(new_project)
 
     return {"message": "Projekt został dodany!", "project_id": new_project.id}
+
 
 @router.get("/")
 def get_projects(db: Session = Depends(get_db)):
@@ -94,7 +106,6 @@ def get_project_by_id(project_id: int, db: Session = Depends(get_db)):
     return {
         "id": project.id,
         "name": project.name,
-        "file_path": project.file_path,
         "column_text_name": project.column_text_name,
         "column_label_name": project.column_label_name,
         "available_labels": project.available_labels,
@@ -113,12 +124,12 @@ def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db))
     start_index = project.last_annotated_index
     end_index = start_index + limit
 
-    # Sprawdzenie czy plik istnieje
-    if not os.path.exists(project.file_path):
-        raise HTTPException(status_code=404, detail="Plik z danymi nie znaleziony")
+    if not project.file_data:
+        raise HTTPException(status_code=404, detail="Brak pliku w bazie")
 
-    # Wczytanie danych
-    dataset_df = pd.read_csv(project.file_path)
+    # Wczytanie danych z binarnego pliku CSV
+    file_like = BytesIO(project.file_data)
+    dataset_df = pd.read_csv(file_like)
 
     if start_index >= len(dataset_df):
         raise HTTPException(status_code=400, detail="Wszystkie dane zostały już zaanotowane.")
@@ -140,9 +151,13 @@ def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db))
     # Pobranie wyników anotacji
     results = annotator.get_results()
 
-    # Dodanie wyników do danych i zapisanie do pliku
+    # Dodanie wyników do danych
     dataset_df.loc[start_index:end_index-1, 'predicted_label'] = [r['predicted_label'] for r in results]
-    dataset_df.to_csv(project.file_path, index=False)
+
+    # Zapisanie zmodyfikowanego pliku do bazy
+    file_buffer = BytesIO()
+    dataset_df.to_csv(file_buffer, index=False)
+    project.file_data = file_buffer.getvalue()
 
     # Zaktualizowanie ostatnio zaanotowanego indeksu
     project.last_annotated_index = end_index
@@ -154,17 +169,21 @@ def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db))
         "next_index": project.last_annotated_index
     }
 
+
+
+
 @router.get("/{project_id}/download")
 def download_annotated_file(project_id: int, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if project is None:
         raise HTTPException(status_code=404, detail="Projekt nie znaleziony")
 
+    if not project.file_data:
+        raise HTTPException(status_code=404, detail="Brak pliku w bazie")
 
-    if not os.path.exists(project.file_path):
-        raise HTTPException(status_code=404, detail="Plik z danymi nie znaleziony")
+    file_like = BytesIO(project.file_data)
+    return StreamingResponse(file_like, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={project.file_name}"})
 
-    return FileResponse(path=project.file_path, filename=f"annotated_project_{project_id}.csv", media_type="text/csv")
 
 
 
@@ -174,27 +193,31 @@ def get_annotated_data(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nie znaleziony")
 
-    if not project.file_path:
-        raise HTTPException(status_code=404, detail="Plik z danymi nie znaleziony")
+    if not project.file_data:
+        raise HTTPException(status_code=404, detail="Brak pliku w bazie danych")
 
     try:
-        dataset_df = pd.read_csv(project.file_path)
+        # 🔹 Odczyt pliku CSV z bazy
+        file_stream = BytesIO(project.file_data)
+        dataset_df = pd.read_csv(file_stream, encoding="utf-8")
 
+        # 🔹 Jeśli `predicted_label` nie istnieje, zwróć pustą listę
         if 'predicted_label' not in dataset_df.columns:
-            raise HTTPException(status_code=400, detail="Brak anotacji w pliku")
+            return []
 
-
+        # 🔹 Pobranie tylko zaanotowanych danych
         annotated_data = dataset_df.iloc[:project.last_annotated_index]
 
-        annotated_data = annotated_data.astype(str).to_dict(orient='records')
+        # 🔹 Jeśli nic nie było anotowane, zwróć pustą listę
+        if annotated_data.empty:
+            return []
 
-        return annotated_data
+        return annotated_data.astype(str).to_dict(orient='records')
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Błąd podczas przetwarzania pliku: {str(e)}")
+
     
-
-
 
 @router.delete("/{project_id}")
 def delete_project(project_id: int, db: Session = Depends(get_db)):
@@ -203,15 +226,12 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     if project is None:
         raise HTTPException(status_code=404, detail="Projekt nie został znaleziony")
 
-    # Usunięcie powiązanego pliku, jeśli istnieje
-    if project.file_path and os.path.exists(project.file_path):
-        os.remove(project.file_path)
-
     # Usunięcie projektu z bazy danych
     db.delete(project)
     db.commit()
 
     return {"message": "Projekt został pomyślnie usunięty"}
+
 
 @router.post("/get_columns")
 async def get_columns(file: UploadFile = File(...)):
