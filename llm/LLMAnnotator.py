@@ -1,7 +1,6 @@
 import pandas as pd
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
-from langsmith import traceable
 
 class LLMAnnotator:
     def __init__(self, model, dataset, examples_for_prompt, prompt_template, text_column_name, labels):
@@ -64,8 +63,7 @@ class LLMAnnotator:
 
         self.chain = LLMChain(llm=self.model, prompt=self.prompt)
 
-    @traceable(name="traceable_annotation")
-    def fetch_answer(self, texts, original_labels):
+    def fetch_answer(self, texts):
         """
         Przeprowadza anotację dla podanych tekstów.
 
@@ -85,9 +83,7 @@ class LLMAnnotator:
                 annotations.append({"text": text, 
                                     "predicted_label": content , 
                                     "logprobs": self.chain.llm.logprobs, 
-                                    "top_logprobs": self.chain.llm.logprobs['content'][0]['top_logprobs'], 
-                                    "original_label": original_labels[i]})
-
+                                    "top_logprobs": self.chain.llm.logprobs['content'][0]['top_logprobs']})
 
             except Exception as e:
                 error_message = f"Error: {str(e)}"
@@ -110,33 +106,15 @@ class LLMAnnotator:
                 raise ValueError("Dataset must contain a 'label' column.")
 
             texts = data[self.text_column_name].tolist()
-            labels = data['label'].tolist()
+  
 
             self._build_prompt()
             self._build_chain()
 
-            self.results = self.fetch_answer(texts, labels)
+            self.results = self.fetch_answer(texts)
             return self.results
         except Exception as e:
             raise ValueError(f"Error in get_results: {e}")
         
-    # def save_results(self, output_path):
-    #     """
-    #     Zapisuje wyniki anotacji do pliku CSV.
-
-    #     :param output_path: Ścieżka do pliku, w którym zostaną zapisane wyniki.
-    #     """
-    #     if self.results is None:
-    #         raise ValueError("No results available. Run get_results() first.")
-
-    #     try:
-    #         # Konwersja wyników do DataFrame
-    #         results_df = pd.DataFrame(self.results)
-
-    #         # Zapis do pliku CSV
-    #         results_df.to_csv(output_path, index=False, encoding='utf-8')
-    #         print(f"Results saved successfully to {output_path}")
-    #     except Exception as e:
-    #         raise ValueError(f"Error while saving results: {e}")
 
 

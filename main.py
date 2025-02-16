@@ -1,10 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import project_routes
+from routes import projects, project, annotation
 
 app = FastAPI()
 
-# Zezwól na dostęp do API z frontendu Angular
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,7 +12,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(project_routes.router, prefix="/api/projects")
+app.include_router(projects.router)
+app.include_router(project.router)
+app.include_router(annotation.router)
+
+
 @app.get("/")
 def root():
-    return {"message": "API działa poprawnie"}
+    return {"message": "API works!"}

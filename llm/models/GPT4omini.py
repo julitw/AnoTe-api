@@ -1,10 +1,7 @@
 from langchain.llms.base import LLM
 import requests
-import math
-from pydantic import Field, BaseModel
-from typing import Any, List, Dict, Optional
-
-
+from pydantic import Field
+from typing import Any, Dict, Optional
 
 
 class GPT4oMiniLLM(LLM):
@@ -37,7 +34,6 @@ class GPT4oMiniLLM(LLM):
             headers=headers
         )
 
-        # Obsługa błędów
         if response.status_code != 200:
             raise ValueError(f"Request failed with status {response.status_code}: {response.text}")
         result = response.json()
