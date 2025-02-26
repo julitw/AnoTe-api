@@ -7,8 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import os
-
 POSTGRES_USER = os.getenv("POSTGRES_USER", "default_user")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "default_password")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "default_db")
