@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, File, UploadFile, Form, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from models.database import get_db
 from models.project_model import Project
@@ -8,7 +8,6 @@ import pandas as pd
 from io import BytesIO
 from llm.LLMAnnotator import LLMAnnotator
 from llm.models.GPT4omini import GPT4oMiniLLM
-from fastapi.responses import StreamingResponse
 
 from dotenv import load_dotenv
 import os
