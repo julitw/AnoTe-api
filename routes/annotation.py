@@ -15,7 +15,6 @@ import os
 load_dotenv()
 
 API_KEY = os.getenv("CLARIN_API_KEY")
-
 router = APIRouter(
     prefix="/api/projects",
     tags=["Annotation"]
@@ -70,3 +69,35 @@ def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db))
         "results": results,
         "next_index": project.last_annotated_index
     }
+
+
+@router.post("/{project_id}/add-true-label")
+def add_true_label(project_id: int, index: int, label: str, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.file_data:
+        raise HTTPException(status_code=404, detail="No file available in the database")
+    
+    try:
+        file_stream = BytesIO(project.file_data)
+        dataset_df = pd.read_csv(file_stream, encoding="utf-8")
+        
+        if 'true_label' not in dataset_df.columns:
+            dataset_df['true_label'] = None  
+        
+        if index < 0 or index >= len(dataset_df):
+            raise HTTPException(status_code=400, detail="Invalid index")
+        
+        dataset_df.at[index, 'true_label'] = label  
+        
+        file_buffer = BytesIO()
+        dataset_df.to_csv(file_buffer, index=False)
+        project.file_data = file_buffer.getvalue()
+        db.commit()
+        
+        return {"message": "True label added successfully", "index": index, "label": label}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing the file: {str(e)}")

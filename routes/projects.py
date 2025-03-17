@@ -26,6 +26,12 @@ async def add_project(
 
     dataset_df = pd.read_csv(BytesIO(file_content), encoding="utf-8")
 
+
+    if 'predicted_label' not in dataset_df.columns:
+        dataset_df['predicted_label']= None
+    if 'true_label' not in dataset_df.columns:
+            dataset_df['true_label'] = 'None'
+
     new_project = Project(
         name=name,
         file_data=file_content,
