@@ -102,8 +102,6 @@ class LLMAnnotator:
             data = self.dataset_for_annotation
             if self.text_column_name not in data.columns:
                 raise ValueError("Dataset must contain a 'text' column.")
-            if 'label' not in data.columns:
-                raise ValueError("Dataset must contain a 'label' column.")
 
             texts = data[self.text_column_name].tolist()
   
