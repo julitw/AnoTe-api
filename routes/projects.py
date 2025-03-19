@@ -28,10 +28,11 @@ async def add_project(
     dataset_df = pd.read_csv(BytesIO(file_content), encoding="utf-8")
 
     modified_df = dataset_df[[column_text_name, column_label_name]]
+    modified_df = modified_df.rename(columns={column_text_name: 'text', column_label_name: 'label'})
     modified_df['predicted_label_by_llm'] = None
     modified_df['evaluated_label_by_user'] = None
     modified_df['was_annotated_by_user'] = None
-    modified_df['was_annotated_by_user'] = modified_df[column_label_name].notna().astype(int)
+    modified_df['was_annotated_by_user'] = modified_df['label'].notna().astype(int)
     modified_df['id'] = [str(uuid.uuid4()) for _ in range(len(modified_df))]
     modified_file = BytesIO()
     modified_df.to_csv(modified_file, index=False, encoding='utf-8')

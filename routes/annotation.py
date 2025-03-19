@@ -57,7 +57,7 @@ def annotate_project(project_id: int, limit: int = 10, db: Session = Depends(get
         dataset=data_subset,
         examples_for_prompt=examples_df,
         prompt_template="Classify the text based on: {labels}. Return only label. Avoid explanations. \n\n{examples}\n\nText: {text}. ",
-        text_column_name=project.column_text_name,
+        text_column_name= 'text',
         labels=project.available_labels.split(',')
     )
     
