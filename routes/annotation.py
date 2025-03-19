@@ -3,12 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from models.database import get_db
 from models.project_model import Project
-import json
 import pandas as pd
 from io import BytesIO
 from llm.LLMAnnotator import LLMAnnotator
 from llm.models.GPT4omini import GPT4oMiniLLM
-
+import json
 from dotenv import load_dotenv
 import os
 
@@ -22,27 +21,37 @@ router = APIRouter(
 
 
 @router.post("/{project_id}/annotate")
-def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db)):
+def annotate_project(project_id: int, limit: int = 10, db: Session = Depends(get_db)):
+    # Pobranie projektu z bazy danych
     project = db.query(Project).filter(Project.id == project_id).first()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    start_index = project.last_annotated_index
-    end_index = start_index + limit
-
-    if not project.file_data:
+    
+    if not project.modified_file_data:
         raise HTTPException(status_code=404, detail="No file available in the database")
-
-    file_like = BytesIO(project.file_data)
+    
+    file_like = BytesIO(project.modified_file_data)
     dataset_df = pd.read_csv(file_like)
-
-    if start_index >= len(dataset_df):
+    
+    if 'predicted_label_by_llm' not in dataset_df.columns:
+        dataset_df['predicted_label_by_llm'] = None
+    if 'logprobs' not in dataset_df.columns:
+        dataset_df['logprobs'] = None
+    if 'top_logprobs' not in dataset_df.columns:
+        dataset_df['top_logprobs'] = None
+    
+    unannotated_rows = dataset_df[(dataset_df['was_annotated_by_user'] == 0) & (dataset_df['predicted_label_by_llm'].isna())]
+    
+    if unannotated_rows.empty:
         raise HTTPException(status_code=400, detail="All data has already been annotated.")
-
-    data_subset = dataset_df.iloc[start_index:end_index]
-    examples_df = data_subset[:5]
-
-
+    
+    data_subset = unannotated_rows.iloc[:limit]
+    
+    if data_subset.empty:
+        raise HTTPException(status_code=400, detail="No unannotated data available within the limit.")
+    
+    examples_df = dataset_df[dataset_df['was_annotated_by_user'] == 1][:10]
+    
     annotator = LLMAnnotator(
         model=GPT4oMiniLLM(token=API_KEY, temperature=0),
         dataset=data_subset,
@@ -51,53 +60,99 @@ def annotate_project(project_id: int, limit: int, db: Session = Depends(get_db))
         text_column_name=project.column_text_name,
         labels=project.available_labels.split(',')
     )
-
-
+    
     results = annotator.get_results()
+    
+    # Mapowanie wyników do odpowiednich id w dataset_df
+    for idx, result in zip(data_subset.index, results):
+        dataset_df.at[idx, 'predicted_label_by_llm'] = result['predicted_label']
+        dataset_df.at[idx, 'logprobs'] = json.dumps(result.get('logprobs', {}))
+        dataset_df.at[idx, 'top_logprobs'] = json.dumps(result.get('top_logprobs', {}))
 
-    dataset_df.loc[start_index:end_index-1, 'predicted_label'] = [r['predicted_label'] for r in results]
-
+    number_annotated_data = int(dataset_df['predicted_label_by_llm'].notna().sum()) + int((dataset_df["was_annotated_by_user"] == 1).sum())
+    
     file_buffer = BytesIO()
     dataset_df.to_csv(file_buffer, index=False)
-    project.file_data = file_buffer.getvalue()
-
-    project.last_annotated_index = end_index
+    project.modified_file_data = file_buffer.getvalue()
+    project.number_annotated_data = number_annotated_data
+    
     db.commit()
-
+    
+    updated_results = [{
+        "id": str(dataset_df.at[idx, 'id']),
+        "response": result['predicted_label'],
+        "logprobs": json.dumps(result.get('logprobs', {})),
+        "top_logprobs": json.dumps(result.get('top_logprobs', {}))
+    } for idx, result in zip(data_subset.index, results)]
+    
     return {
         "message": "Annotation done",
-        "results": results,
-        "next_index": project.last_annotated_index
+        "updated_results": updated_results
     }
 
 
+
+@router.get("/{project_id}/get-next-annotated-ids")
+def get_next_annotated_ids(project_id: int, limit: int = 10, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.modified_file_data:
+        raise HTTPException(status_code=404, detail="No file available in the database")
+    
+    file_like = BytesIO(project.modified_file_data)
+    dataset_df = pd.read_csv(file_like)
+    
+    unannotated_rows = dataset_df[(dataset_df['was_annotated_by_user'] == 0) & (dataset_df['predicted_label_by_llm'].isna())]
+    
+    if unannotated_rows.empty:
+        raise HTTPException(status_code=400, detail="All data has already been annotated.")
+    
+    data_subset = unannotated_rows.iloc[:limit]
+    
+    if data_subset.empty:
+        raise HTTPException(status_code=400, detail="No unannotated data available within the limit.")
+    
+    updated_ids = dataset_df.loc[data_subset.index, 'id'].tolist()
+    
+    return {
+        "message": "Success!",
+        "updated_ids": updated_ids
+    }
+        
+        
+
 @router.post("/{project_id}/add-true-label")
-def add_true_label(project_id: int, index: int, label: str, db: Session = Depends(get_db)):
+def add_true_label(project_id: int, exampleId: str, label: str, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    if not project.file_data:
+    if not project.modified_file_data:
         raise HTTPException(status_code=404, detail="No file available in the database")
     
     try:
-        file_stream = BytesIO(project.file_data)
+        file_stream = BytesIO(project.modified_file_data)
         dataset_df = pd.read_csv(file_stream, encoding="utf-8")
         
-        if 'true_label' not in dataset_df.columns:
-            dataset_df['true_label'] = None  
+        if exampleId not in dataset_df['id'].astype(str).values:
+            raise HTTPException(status_code=400, detail="Invalid ID")
         
-        if index < 0 or index >= len(dataset_df):
-            raise HTTPException(status_code=400, detail="Invalid index")
-        
-        dataset_df.at[index, 'true_label'] = label  
+        dataset_df.loc[dataset_df['id'].astype(str) == exampleId, 'evaluated_label_by_user'] = label  
+
+        evaluated_data_number = int(dataset_df['evaluated_label_by_user'].notna().sum())
+        positive_evaluated = int((dataset_df["predicted_label_by_llm"] == dataset_df["evaluated_label_by_user"]).sum())
+
         
         file_buffer = BytesIO()
         dataset_df.to_csv(file_buffer, index=False)
-        project.file_data = file_buffer.getvalue()
+        project.modified_file_data = file_buffer.getvalue()
+        project.number_positive_evaluated_data =positive_evaluated
+        project.number_evaluated_data = evaluated_data_number
         db.commit()
         
-        return {"message": "True label added successfully", "index": index, "label": label}
+        return {"message": "True label added successfully", "id": exampleId, "label": label}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing the file: {str(e)}")

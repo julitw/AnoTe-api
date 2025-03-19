@@ -22,7 +22,10 @@ def get_project_by_id(project_id: int, db: Session = Depends(get_db)):
         "column_text_name": project.column_text_name,
         "column_label_name": project.column_label_name,
         "available_labels": project.available_labels,
-        "last_annotated_index": project.last_annotated_index
+        "number_evaluated_data": project.number_evaluated_data ,
+        "number_positive_evaluated_data": project.number_positive_evaluated_data ,
+        "number_annotated_data": project.number_annotated_data,
+        "total": project.row_count
     }
 
 
@@ -35,7 +38,7 @@ def download_annotated_file(project_id: int, db: Session = Depends(get_db)):
     if not project.file_data:
         raise HTTPException(status_code=404, detail="No file available in the database")
 
-    file_like = BytesIO(project.file_data)
+    file_like = BytesIO(project.modified_file_data)
     return StreamingResponse(file_like, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={project.file_name}"})
 
 
@@ -45,22 +48,15 @@ def get_annotated_data(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if not project.file_data:
+    if not project.modified_file_data:
         raise HTTPException(status_code=404, detail="No file available in the database")
 
     try:
-        file_stream = BytesIO(project.file_data)
+        file_stream = BytesIO(project.modified_file_data)
         dataset_df = pd.read_csv(file_stream, encoding="utf-8")
 
-        if 'predicted_label' not in dataset_df.columns:
-            return []
 
-        annotated_data = dataset_df.iloc[:project.last_annotated_index]
-
-        if annotated_data.empty:
-            return []
-
-        return annotated_data.astype(str).to_dict(orient='records')
+        return dataset_df.astype(str).to_dict(orient='records')
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing the file: {str(e)}")

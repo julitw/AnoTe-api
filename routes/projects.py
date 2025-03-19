@@ -5,6 +5,7 @@ from models.project_model import Project
 import json
 import pandas as pd
 from io import BytesIO
+import uuid
 
 router = APIRouter(
     prefix="/api/projects",
@@ -26,11 +27,15 @@ async def add_project(
 
     dataset_df = pd.read_csv(BytesIO(file_content), encoding="utf-8")
 
-
-    if 'predicted_label' not in dataset_df.columns:
-        dataset_df['predicted_label']= None
-    if 'true_label' not in dataset_df.columns:
-            dataset_df['true_label'] = 'None'
+    modified_df = dataset_df[[column_text_name, column_label_name]]
+    modified_df['predicted_label_by_llm'] = None
+    modified_df['evaluated_label_by_user'] = None
+    modified_df['was_annotated_by_user'] = None
+    modified_df['was_annotated_by_user'] = modified_df[column_label_name].notna().astype(int)
+    modified_df['id'] = [str(uuid.uuid4()) for _ in range(len(modified_df))]
+    modified_file = BytesIO()
+    modified_df.to_csv(modified_file, index=False, encoding='utf-8')
+    modified_file.seek(0)
 
     new_project = Project(
         name=name,
@@ -39,8 +44,11 @@ async def add_project(
         column_text_name=column_text_name,
         column_label_name=column_label_name,
         available_labels=json.dumps(available_labels),
-        last_annotated_index=0,
-        row_count=len(dataset_df)
+        row_count=len(dataset_df),
+       modified_file_data = modified_file.getvalue(),
+       number_annotated_data = int((modified_df["was_annotated_by_user"] == 1).sum())
+       
+       
     )
 
     db.add(new_project)
