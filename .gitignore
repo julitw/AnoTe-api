@@ -11,3 +11,4 @@ venv/
 
 database.db
 projects.db
+llm/testy.ipynb

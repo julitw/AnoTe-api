@@ -1,6 +1,7 @@
 import pandas as pd
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
+import json
 
 class LLMAnnotator:
     def __init__(self, model, dataset, examples_for_prompt, prompt_template, text_column_name, labels):
@@ -80,16 +81,24 @@ class LLMAnnotator:
                 else:
                     content = result
                     print('Nr: ', i , "Predicted label: ", content)
-                annotations.append({"text": text, 
+                # annotations.append({"text": text, 
+                #                     "predicted_label": content , 
+                #                     "logprobs": self.chain.llm.logprobs, 
+                #                     "top_logprobs": self.chain.llm.logprobs['content'][0]['top_logprobs']})
+                    yield {"text": text, 
                                     "predicted_label": content , 
                                     "logprobs": self.chain.llm.logprobs, 
-                                    "top_logprobs": self.chain.llm.logprobs['content'][0]['top_logprobs']})
+                                    "top_logprobs": self.chain.llm.logprobs['content'][0]['top_logprobs']}
 
             except Exception as e:
                 error_message = f"Error: {str(e)}"
                 print('Nr: ', i, 'Error: ', error_message)
-                annotations.append({"text": text, "annotation": error_message})
-        return annotations
+                # annotations.append({"text": text, "annotation": error_message})
+                yield {
+                    "text": text,
+                    "error": error_message
+                }
+        # return annotations
 
 
     def get_results(self):
@@ -109,10 +118,11 @@ class LLMAnnotator:
             self._build_prompt()
             self._build_chain()
 
-            self.results = self.fetch_answer(texts)
-            return self.results
+            for result in self.fetch_answer(texts):
+                yield json.dumps(result) + "\n"
+
         except Exception as e:
-            raise ValueError(f"Error in get_results: {e}")
+            yield json.dumps({"error", str(e)}) + "\n"
         
 
 

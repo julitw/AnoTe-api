@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from models.database import engine, Base
-from routes import projects, project, annotation
+from routes import  project, annotation
 from fastapi.middleware.cors import CORSMiddleware
-from routes import projects, project, annotation
+from routes import project, annotation
 
 Base.metadata.create_all(bind=engine)
 
@@ -16,7 +16,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(projects.router)
 app.include_router(project.router)
 app.include_router(annotation.router)
 
