@@ -28,7 +28,7 @@ async def add_project(
     dataset_df = pd.read_csv(BytesIO(file_content), encoding="utf-8")
 
     modified_df = dataset_df[[column_text_name, column_label_name]]
-    modified_df = modified_df.rename(columns={column_text_name: 'text', column_text_name: 'label'})
+    modified_df = modified_df.rename(columns={column_text_name: 'text', column_label_name: 'label'})
     modified_df['predicted_label_by_llm'] = None
     modified_df['evaluated_label_by_user'] = None
     modified_df['was_annotated_by_user'] = None
