@@ -11,10 +11,10 @@ import json
 from dotenv import load_dotenv
 import os
 
-from utils.llm.LLMAnnotator import LLMAnnotator
-from utils.llm.models.GPT4omini import GPT4oMiniLLM
-from utils.annotation import prepare_dataframes, annotate_and_stream
-from utils.examples.ExamplesSelector import ExamplesSelector
+from utils.annotation.llm.LLMAnnotator import LLMAnnotator
+from utils.annotation.llm.models.GPT4omini import GPT4oMiniLLM
+from utils.annotation.prepare_data import prepare_dataframes, annotate_and_stream
+from utils.annotation.examples.ExamplesSelector import ExamplesSelector
 
 
 load_dotenv()
