@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, LargeBinary
+from sqlalchemy import Column, Integer, String, LargeBinary, DateTime
+from datetime import datetime
 from .database import Base
 
 class Project(Base):
@@ -16,3 +17,5 @@ class Project(Base):
     number_evaluated_data = Column(Integer, nullable=True)
     number_positive_evaluated_data = Column(Integer, nullable=True)
     number_annotated_data = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
