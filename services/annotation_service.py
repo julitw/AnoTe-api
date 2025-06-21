@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from utils.annotation.prepare_data import prepare_dataframes
 from utils.annotation.examples.ExamplesSelector import ExamplesSelector
 from utils.annotation.llm.LLMAnnotator import LLMAnnotator
+from utils.annotation.examples.ExamplesSelector import ExamplesSelector
 from utils.annotation.llm.models.GPT4omini import GPT4oMiniLLM
 from repositories.project_repository import get_project_or_404, save_dataframe_to_project
 import os
@@ -31,9 +32,7 @@ def stream_annotations(project_id: int, limit: int, db: Session):
     if data_subset.empty:
         raise HTTPException(status_code=400, detail="No unannotated data available within the limit.")
 
-    examples_df = ExamplesSelector(
-        dataset_df[dataset_df['was_annotated_by_user'] == 1]
-    ).get_examples()
+    examples_df = create_examples(dataset_df)
 
     annotator = LLMAnnotator(
         model=GPT4oMiniLLM(token=API_KEY, temperature=0),
@@ -47,26 +46,6 @@ def stream_annotations(project_id: int, limit: int, db: Session):
     return generate_annotation_stream(annotator, db, project, dataset_df, data_subset)
 
 
-# def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
-
-#     for idx, result in zip(data_subset.index, annotator.get_results()):
-#         print("result", result, flush=True)
-#         if isinstance(result, str):
-#             result = json.loads(result)
-            
-
-#         dataset_df.at[idx, 'predicted_label_by_llm'] = result['predicted_label']
-#         dataset_df.at[idx, 'logprobs'] = json.dumps(result.get('logprobs', {}))
-#         dataset_df.at[idx, 'top_logprobs'] = json.dumps(result.get('top_logprobs', {}))
-
-#         save_dataframe_to_project(project, dataset_df, db)
-
-#         yield json.dumps({
-#             "id": str(dataset_df.at[idx, 'id']),
-#             "response": result['predicted_label'],
-#             "logprobs": result['logprobs'],
-#             "top_logprobs": result['top_logprobs']
-#         }) + "\n"
 
 def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
     for idx, result in zip(data_subset.index, annotator.get_results()):
@@ -150,3 +129,42 @@ def add_true_label_to_example(project_id: int, example_id: str, label: str, db: 
     save_dataframe_to_project(project, df, db)
 
     return {"message": "True label added successfully", "id": example_id, "label": label}
+
+
+
+def annotate_prompt_example_by_user(project_id: int, example_id: str, true_label: str, db: Session):
+    project = get_project_or_404(project_id, db)
+    file_like = BytesIO(project.modified_file_data)
+    df = pd.read_csv(file_like)
+
+    if example_id not in df['id'].astype(str).values:
+        raise HTTPException(status_code=404, detail="Example not found")
+
+    df.loc[df['id'].astype(str) == example_id, 'evaluated_label_by_user'] = true_label
+    df.loc[df['id'].astype(str) == example_id, 'selected_as_prompt_example'] = 1
+
+    save_dataframe_to_project(project, df, db)
+
+    return {"message": "Example annotated and marked as prompt reference", "id": example_id}
+
+
+
+def create_examples(dataset_df: pd.DataFrame) -> pd.DataFrame:
+    # Przykłady oznaczone ręcznie
+    was_annotated = dataset_df[
+        dataset_df['was_annotated_by_user'] == 1
+    ][['text', 'label']].copy()
+    was_annotated['evaluated_label_by_user'] = None  # brak tej kolumny w tym zestawie
+
+    # Przykłady wybrane jako prompt example (ręcznie ocenione)
+    prompt_examples = dataset_df[
+        dataset_df['selected_as_prompt_example'] == 1
+    ][['text', 'evaluated_label_by_user']].copy()
+    prompt_examples = prompt_examples.rename(columns={'evaluated_label_by_user': 'label'})
+    prompt_examples['evaluated_label_by_user'] = prompt_examples['label']  # kopia do dodatkowej kolumny
+
+    # Połącz oba
+    examples_df = pd.concat([was_annotated, prompt_examples], ignore_index=True)
+    
+    return examples_df
+

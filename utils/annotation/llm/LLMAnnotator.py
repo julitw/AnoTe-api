@@ -47,6 +47,9 @@ class LLMAnnotator:
             prompt_template_with_examples = self.prompt_template.replace("{examples}", result_string_examples)
             prompt_template_with_examples = prompt_template_with_examples.replace("{labels}", ", ".join(self.labels))
 
+            
+            print('PROMPT', prompt_template_with_examples)
+
 
             self.prompt = PromptTemplate(
                 input_variables=["text"],

@@ -2,14 +2,15 @@
 from io import BytesIO
 import json
 import pandas as pd
-
+import numpy as np
+import json
 
 
 def prepare_dataframes(dataset_df: pd.DataFrame) -> pd.DataFrame:
     """
     Dodaje brakujące kolumny do DataFrame, jeśli nie istnieją.
     """
-    for column in ['predicted_label_by_llm', 'logprobs', 'top_logprobs']:
+    for column in ['predicted_label_by_llm', 'logprobs', 'top_logprobs', 'selected_as_prompt_example']:
         if column not in dataset_df.columns:
             dataset_df[column] = None
 
@@ -61,3 +62,5 @@ def update_database_with_results(db, project, dataset_df, idx, result):
     except Exception as e:
         db.rollback()
         print(f"Error updating database for record {idx}: {e}")
+        
+        
