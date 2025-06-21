@@ -47,23 +47,66 @@ def stream_annotations(project_id: int, limit: int, db: Session):
     return generate_annotation_stream(annotator, db, project, dataset_df, data_subset)
 
 
+# def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
+
+#     for idx, result in zip(data_subset.index, annotator.get_results()):
+#         print("result", result, flush=True)
+#         if isinstance(result, str):
+#             result = json.loads(result)
+            
+
+#         dataset_df.at[idx, 'predicted_label_by_llm'] = result['predicted_label']
+#         dataset_df.at[idx, 'logprobs'] = json.dumps(result.get('logprobs', {}))
+#         dataset_df.at[idx, 'top_logprobs'] = json.dumps(result.get('top_logprobs', {}))
+
+#         save_dataframe_to_project(project, dataset_df, db)
+
+#         yield json.dumps({
+#             "id": str(dataset_df.at[idx, 'id']),
+#             "response": result['predicted_label'],
+#             "logprobs": result['logprobs'],
+#             "top_logprobs": result['top_logprobs']
+#         }) + "\n"
+
 def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
     for idx, result in zip(data_subset.index, annotator.get_results()):
-        if isinstance(result, str):
-            result = json.loads(result)
+        try:
+            print("result", result, flush=True)
+            if isinstance(result, str):
+                result = json.loads(result)
 
-        dataset_df.at[idx, 'predicted_label_by_llm'] = result['predicted_label']
-        dataset_df.at[idx, 'logprobs'] = json.dumps(result.get('logprobs', {}))
-        dataset_df.at[idx, 'top_logprobs'] = json.dumps(result.get('top_logprobs', {}))
+            # Sprawdź, czy klucz 'predicted_label' istnieje
+            if 'predicted_label' not in result:
+                raise KeyError("Missing 'predicted_label' in result")
 
-        save_dataframe_to_project(project, dataset_df, db)
+            # Aktualizacja DataFrame
+            dataset_df.at[idx, 'predicted_label_by_llm'] = result['predicted_label']
+            dataset_df.at[idx, 'logprobs'] = json.dumps(result.get('logprobs', {}))
+            dataset_df.at[idx, 'top_logprobs'] = json.dumps(result.get('top_logprobs', {}))
 
-        yield json.dumps({
-            "id": str(dataset_df.at[idx, 'id']),
-            "response": result['predicted_label'],
-            "logprobs": result['logprobs'],
-            "top_logprobs": result['top_logprobs']
-        }) + "\n"
+            # Zapisz zmiany w projekcie
+            save_dataframe_to_project(project, dataset_df, db)
+
+            # Zwróć wynik jako strumień
+            yield json.dumps({
+                "id": str(dataset_df.at[idx, 'id']),
+                "response": result['predicted_label'],
+                "logprobs": result.get('logprobs', {}),
+                "top_logprobs": result.get('top_logprobs', {})
+            }) + "\n"
+
+        except KeyError as e:
+            # Obsługa brakujących kluczy w wyniku
+            print(f"KeyError: {e}, skipping index {idx}", flush=True)
+            continue
+        except json.JSONDecodeError as e:
+            # Obsługa błędów parsowania JSON
+            print(f"JSONDecodeError: {e}, skipping index {idx}", flush=True)
+            continue
+        except Exception as e:
+            # Obsługa innych nieoczekiwanych błędów
+            print(f"Unexpected error: {e}, skipping index {idx}", flush=True)
+            continue
 
 
 def get_next_unannotated_ids(project_id: int, limit: int, db: Session):
