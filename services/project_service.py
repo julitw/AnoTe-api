@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 import uuid
 import json
 from repositories.project_repository import add_project
+from utils.annotation.prepare_data import create_label_mappings
 
 
 async def add_new_project(
@@ -32,6 +33,17 @@ async def add_new_project(
     modified_df['was_annotated_by_user'] = None
     modified_df['was_annotated_by_user'] = modified_df['label'].notna().astype(int)
     modified_df['id'] = [str(uuid.uuid4()) for _ in range(len(modified_df))]
+    
+    label2id, id2label = create_label_mappings(available_labels)
+
+    modified_df['label'] = modified_df['label'].map(label2id)
+    
+        
+    for col in ['label']:
+        modified_df[col] = modified_df[col].apply(lambda x: str(int(x)) if pd.notna(x) else "")
+
+
+    
     modified_file = BytesIO()
     modified_df.to_csv(modified_file, index=False, encoding='utf-8')
     modified_file.seek(0)
@@ -42,7 +54,7 @@ async def add_new_project(
         file_name=file.filename,
         column_text_name=column_text_name,
         column_label_name=column_label_name,
-        available_labels=json.dumps(available_labels),
+        available_labels=json.dumps(id2label),
         row_count=len(dataset_df),
        modified_file_data = modified_file.getvalue(),
        number_annotated_data = int((modified_df["was_annotated_by_user"] == 1).sum())
@@ -95,7 +107,7 @@ def get_data(project_id: int, db: Session = Depends(get_db)):
     try:
         file_stream = BytesIO(project.modified_file_data)
         dataset_df = pd.read_csv(file_stream, encoding="utf-8")
-
+        
 
         return dataset_df.astype(str).to_dict(orient='records')
 
@@ -118,7 +130,6 @@ async def get_file_columns(file: UploadFile = File(...)):
     try:
         df = pd.read_csv(file.file, nrows=1)
         columns = list(df.columns)
-        print('column', columns)
         if not columns:
             return {"message": "The file does not contain headers"}
         return {"columns": columns}

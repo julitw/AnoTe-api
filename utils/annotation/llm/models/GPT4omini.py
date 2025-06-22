@@ -19,7 +19,7 @@ class GPT4oMiniLLM(LLM):
             "messages": [{"role": "user", "content": prompt}],
             "logprobs": True,  
             "temperature": self.temperature,  
-            "top_logprobs": 5
+            "top_logprobs": 10
         }
 
         headers = {

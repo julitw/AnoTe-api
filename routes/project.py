@@ -63,3 +63,15 @@ async def get_columns(file: UploadFile = File(...)):
 async def get_unique_values(file: UploadFile = File(...), column_name: str = Form(...)):
     result = await get_labels(file, column_name)
     return result
+
+@router.get("/{project_id}/label-map")
+def get_label_map(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        label_map = json.loads(project.available_labels)
+        return {"label_map": label_map}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Label mapping is corrupted")

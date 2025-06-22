@@ -38,9 +38,10 @@ def stream_annotations(project_id: int, limit: int, db: Session):
         model=GPT4oMiniLLM(token=API_KEY, temperature=0),
         dataset=data_subset,
         examples_for_prompt=examples_df,
-        prompt_template="Classify the text based on: {labels}. Return only label. Avoid explanations. \n\n{examples}\n\nText: {text}. ",
+        prompt_template="Classify the text based on: \n\n {labels}.  \n\n{examples}\n\nText: {text}. \n\n Return only one label. Avoid explanations. ",
         text_column_name='text',
-        labels=project.available_labels.split(',')
+        labels = {int(k): v for k, v in json.loads(project.available_labels).items()}
+
     )
 
     return generate_annotation_stream(annotator, db, project, dataset_df, data_subset)
@@ -50,7 +51,6 @@ def stream_annotations(project_id: int, limit: int, db: Session):
 def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
     for idx, result in zip(data_subset.index, annotator.get_results()):
         try:
-            print("result", result, flush=True)
             if isinstance(result, str):
                 result = json.loads(result)
 
@@ -65,6 +65,12 @@ def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
 
             # Zapisz zmiany w projekcie
             save_dataframe_to_project(project, dataset_df, db)
+            
+            print('WYNIKI ANOTACJA')
+            
+            print(idx, result['predicted_label'], flush=True)
+            print('')
+            print(idx, result['top_logprobs'], flush=True)
 
             # Zwróć wynik jako strumień
             yield json.dumps({
@@ -162,9 +168,14 @@ def create_examples(dataset_df: pd.DataFrame) -> pd.DataFrame:
     ][['text', 'evaluated_label_by_user']].copy()
     prompt_examples = prompt_examples.rename(columns={'evaluated_label_by_user': 'label'})
     prompt_examples['evaluated_label_by_user'] = prompt_examples['label']  # kopia do dodatkowej kolumny
+    
 
     # Połącz oba
     examples_df = pd.concat([was_annotated, prompt_examples], ignore_index=True)
+    
+        
+    for col in ['label']:
+        examples_df[col] = examples_df[col].apply(lambda x: str(int(x)) if pd.notna(x) else "")
     
     return examples_df
 

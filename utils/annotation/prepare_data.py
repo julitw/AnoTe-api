@@ -64,3 +64,11 @@ def update_database_with_results(db, project, dataset_df, idx, result):
         print(f"Error updating database for record {idx}: {e}")
         
         
+import json
+
+def create_label_mappings(available_labels_str):
+    labels = json.loads(available_labels_str) if isinstance(available_labels_str, str) else available_labels_str
+    label2id = {label: idx for idx, label in enumerate(labels)}
+    id2label = {int(idx): label for label, idx in label2id.items()}  # 👈 wymuszenie int
+    return label2id, id2label
+

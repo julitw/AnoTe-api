@@ -42,12 +42,22 @@ class LLMAnnotator:
                 examples.append(example_str)
 
             result_string_examples = "\n\n".join(examples)
+            
 
      
             prompt_template_with_examples = self.prompt_template.replace("{examples}", result_string_examples)
-            prompt_template_with_examples = prompt_template_with_examples.replace("{labels}", ", ".join(self.labels))
-
             
+            
+            if isinstance(self.labels, dict):
+                label_lines = [f"{k} - {v}" for k, v in self.labels.items()]
+                labels_string = "\n".join(label_lines)
+            else:
+                labels_string = ", ".join(self.labels)
+
+            prompt_template_with_examples = prompt_template_with_examples.replace("{labels}", labels_string)
+
+
+                        
             print('PROMPT', prompt_template_with_examples)
 
 
@@ -83,7 +93,7 @@ class LLMAnnotator:
                     content = result[0]  
                 else:
                     content = result
-                    print('Nr: ', i , "Predicted label: ", content)
+    
                 # annotations.append({"text": text, 
                 #                     "predicted_label": content , 
                 #                     "logprobs": self.chain.llm.logprobs, 
@@ -95,7 +105,6 @@ class LLMAnnotator:
 
             except Exception as e:
                 error_message = f"Error: {str(e)}"
-                print('Nr: ', i, 'Error: ', error_message)
                 # annotations.append({"text": text, "annotation": error_message})
                 yield {
                     "text": text,
