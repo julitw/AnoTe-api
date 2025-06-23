@@ -20,7 +20,8 @@ class LLMAnnotator:
         self.prompt_template = prompt_template
         self.text_column_name = text_column_name
         self.labels = labels
-
+        
+        self.prompt_with_examples = None
         self.prompt = None
         self.chain = None
         self.results = None
@@ -37,7 +38,7 @@ class LLMAnnotator:
                 example_str = (
                     f"Example {idx + 1}:\n"
                     f"    Text: \"{row['text']}\"\n"
-                    f"    Annotation:  {label_name}\n"
+                    f"    Category:  {label_name}\n"
                 )
                 examples.append(example_str)
 
@@ -54,7 +55,7 @@ class LLMAnnotator:
             else:
                 labels_string = ", ".join(self.labels)
 
-            prompt_template_with_examples = prompt_template_with_examples.replace("{labels}", labels_string)
+            self.prompt_with_examples = prompt_template_with_examples.replace("{labels}", labels_string)
 
 
                         
@@ -63,7 +64,7 @@ class LLMAnnotator:
 
             self.prompt = PromptTemplate(
                 input_variables=["text"],
-                template=prompt_template_with_examples
+                template=self.prompt_with_examples
             )
         except Exception as e:
             raise ValueError(f"Error while building prompt: {e}")
@@ -135,6 +136,16 @@ class LLMAnnotator:
 
         except Exception as e:
             yield json.dumps({"error", str(e)}) + "\n"
+            
+            
+    def get_prompt(self):
+        """
+        Zwraca już zbudowany prompt.
+        
+        :return: Zbudowany prompt
+        """
+   
+        return self.prompt_with_examples
         
 
 

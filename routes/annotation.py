@@ -8,8 +8,10 @@ from services.annotation_service import (
     stream_annotations,
     get_next_unannotated_ids,
     add_true_label_to_example,
-    annotate_prompt_example_by_user
+    annotate_prompt_example_by_user,
 )
+
+from services.explanation_service import get_explanation
 import pandas as pd
 from utils.annotation.examples.ExamplesSelector import ExamplesSelector
 
@@ -61,3 +63,13 @@ def get_high_entropy_llm_examples(project_id: int, top_k: int = 5, db: Session =
 @router.post("/{project_id}/annotate-prompt-example")
 def annotate_prompt_example(project_id: int, example_id: str, true_label: str, db: Session = Depends(get_db)):
     return annotate_prompt_example_by_user(project_id, example_id, true_label, db)
+
+
+
+@router.get("/{project_id}/get-logprobs-for-text/{example_id}")
+def get_explanation_for_text(project_id: int, example_id: str, db: Session = Depends(get_db)):
+    """
+    Endpoint, który zwraca logprobs i top_logprobs dla danego tekstu w projekcie
+    na podstawie istniejących danych w projekcie.
+    """
+    return get_explanation(project_id, example_id, db)

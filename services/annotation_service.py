@@ -38,11 +38,13 @@ def stream_annotations(project_id: int, limit: int, db: Session):
         model=GPT4oMiniLLM(token=API_KEY, temperature=0),
         dataset=data_subset,
         examples_for_prompt=examples_df,
-        prompt_template="Classify the text based on: \n\n {labels}.  \n\n{examples}\n\nText: {text}. \n\n Return only one label. Avoid explanations. ",
+        prompt_template="Classify the text based on: \n\n {labels}.  \n\n{examples}\n\nText: {text}. \n\n Return only one label  (like 0,1,2). Avoid explanations. ",
         text_column_name='text',
         labels = {int(k): v for k, v in json.loads(project.available_labels).items()}
 
     )
+    
+    print('OK', annotator.get_prompt())
 
     return generate_annotation_stream(annotator, db, project, dataset_df, data_subset)
 
@@ -53,6 +55,9 @@ def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
         try:
             if isinstance(result, str):
                 result = json.loads(result)
+                
+                
+            print(result)
 
             # Sprawdź, czy klucz 'predicted_label' istnieje
             if 'predicted_label' not in result:
@@ -62,11 +67,11 @@ def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
             dataset_df.at[idx, 'predicted_label_by_llm'] = result['predicted_label']
             dataset_df.at[idx, 'logprobs'] = json.dumps(result.get('logprobs', {}))
             dataset_df.at[idx, 'top_logprobs'] = json.dumps(result.get('top_logprobs', {}))
+            dataset_df.at[idx, 'used_prompt'] = annotator.get_prompt()
 
             # Zapisz zmiany w projekcie
             save_dataframe_to_project(project, dataset_df, db)
-            
-            print('WYNIKI ANOTACJA')
+        
             
             print(idx, result['predicted_label'], flush=True)
             print('')
@@ -75,6 +80,7 @@ def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
             # Zwróć wynik jako strumień
             yield json.dumps({
                 "id": str(dataset_df.at[idx, 'id']),
+                "prompt": prompt,
                 "response": result['predicted_label'],
                 "logprobs": result.get('logprobs', {}),
                 "top_logprobs": result.get('top_logprobs', {})
@@ -178,4 +184,43 @@ def create_examples(dataset_df: pd.DataFrame) -> pd.DataFrame:
         examples_df[col] = examples_df[col].apply(lambda x: str(int(x)) if pd.notna(x) else "")
     
     return examples_df
+
+
+
+
+def get_logprobs_for_text(project_id: int, example_id: str, db: Session):
+    # Wyszukiwanie projektu
+    project = get_project_or_404(project_id, db)
+
+    # Wczytanie pliku CSV
+    file_like = BytesIO(project.modified_file_data)
+    df = pd.read_csv(file_like)
+
+    # Wyszukiwanie wiersza po ID
+    example_row = df[df['id'] == example_id]
+
+    if example_row.empty:
+        raise HTTPException(status_code=404, detail="Example not found")
+
+    # Zbieranie danych z projektu
+    text = example_row['text'].iloc[0]
+
+    # Tworzymy annotatora LLM
+    examples_df = create_examples(df)
+    annotator = LLMAnnotator(
+        model=GPT4oMiniLLM(token=API_KEY, temperature=0),
+        dataset=pd.DataFrame(),  # Nie używamy danych do anotacji, bo klasyfikujemy jeden wiersz
+        examples_for_prompt=examples_df,
+        prompt_template="Classify the text based on: {labels}. Return only label. Avoid explanations. \n\n{examples}\n\nText: {text}. ",
+        text_column_name='text',
+        labels=project.available_labels.split(',')
+    )
+
+    # Otrzymanie wyników
+    result = annotator.annotate_single_text(text)
+
+    return result
+
+
+
 
