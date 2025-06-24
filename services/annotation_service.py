@@ -80,7 +80,7 @@ def generate_annotation_stream(annotator, db, project, dataset_df, data_subset):
             # Zwróć wynik jako strumień
             yield json.dumps({
                 "id": str(dataset_df.at[idx, 'id']),
-                "prompt": prompt,
+                "prompt": annotator.get_prompt(),
                 "response": result['predicted_label'],
                 "logprobs": result.get('logprobs', {}),
                 "top_logprobs": result.get('top_logprobs', {})

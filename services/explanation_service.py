@@ -1,4 +1,3 @@
-
 import pandas as pd
 import json
 from repositories.project_repository import get_project_or_404
@@ -6,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from io import BytesIO
 from utils.explanation.explanation import calculate_explanation
-
+from repositories.project_repository import save_dataframe_to_project  # Zaimportuj funkcję zapisu
 
 def get_explanation(project_id: int, example_id: str, db: Session):
     # Wyszukiwanie projektu
@@ -45,6 +44,14 @@ def get_explanation(project_id: int, example_id: str, db: Session):
     print('USED PROMPT:', used_prompt)  # Wyświetlenie użytego promptu
     print('AVAILABLE LABELS:', available_labels)  # Wyświetlenie dostępnych etykiet
 
-    text = calculate_explanation(text, top_logprobs, used_prompt, available_labels)
+    # Oblicz wyjaśnienie
+    explanation = calculate_explanation(text, top_logprobs, used_prompt, available_labels)
     
-    return text
+    # Zapisz wynik do kolumny 'explanation'
+    df.loc[df['id'] == example_id, 'explanation'] = explanation  # Zaktualizowanie kolumny 'explanation'
+
+    # Zapisz zmiany w projekcie
+    save_dataframe_to_project(project, df, db)
+
+    # Zwrócenie obliczonego wyjaśnienia
+    return explanation
